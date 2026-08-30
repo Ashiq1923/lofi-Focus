@@ -383,6 +383,44 @@ input[type="range"]::-moz-range-thumb {
     transform: none;
   }
 }
+  .mixer-url-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.mixer-url-input {
+  flex: 1;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  color: #fff;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  min-width: 0;
+}
+
+.mixer-url-input::placeholder {
+  color: rgba(255,255,255,0.5);
+}
+
+.mixer-url-btn {
+  background: rgba(255,255,255,0.2);
+  border: 1px solid var(--glass-border);
+  color: #fff;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: background 0.2s ease;
+}
+
+.mixer-url-btn:hover {
+  background: rgba(255,255,255,0.32);
+}
 </style>
 </head>
 <body>
