@@ -203,6 +203,34 @@ html, body {
 }
 .master-btn:hover { background: rgba(255,255,255,0.3); }
 
+.mixer-controls-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: clamp(12px, 3vw, 16px);
+}
+
+.mixer-controls-row .master-btn {
+  flex: 1 1 auto;
+  min-width: 100px;
+}
+
+.reset-mixer-btn {
+  background: rgba(255,100,100,0.15);
+  border: 1px solid rgba(255,100,100,0.4);
+  color: #ffa0a0;
+  padding: 6px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+.reset-mixer-btn:hover { 
+  background: rgba(255,100,100,0.25);
+  color: #fff;
+}
+
 /* Mixer rows */
 .mixer-list { display: flex; flex-direction: column; gap: clamp(12px, 3vw, 16px); }
 
@@ -393,6 +421,7 @@ input[type="range"]::-moz-range-thumb {
   .topbar { flex-direction: column; gap: 6px; text-align: center; }
   .panel { border-radius: 16px; }
   .timer-controls { gap: 12px; }
+  .mixer-controls-row { gap: 6px; }
 }
 
 /* Small phones */
@@ -402,6 +431,7 @@ input[type="range"]::-moz-range-thumb {
   .mode-btn { padding: 7px 8px; }
   .stats-grid { grid-template-columns: 1fr; }
   .master-btn { font-size: 0.72rem; padding: 5px 10px; }
+  .reset-mixer-btn { font-size: 0.72rem; padding: 5px 10px; }
 }
 
 /* Short/landscape screens (phone rotated, small laptops in a split view) */
@@ -468,7 +498,11 @@ input[type="range"]::-moz-range-thumb {
         <div class="panel mixer-panel glass">
           <div class="panel-title">
             <span>Ambient Mixer</span>
+          </div>
+          
+          <div class="mixer-controls-row">
             <button id="masterPlayBtn" class="master-btn">▶ Play All</button>
+            <button id="resetMixerBtn" class="reset-mixer-btn">🔄 Reset</button>
           </div>
 
           <div class="mixer-list" id="mixerList"></div>
@@ -652,11 +686,6 @@ updateDisplay();
 /* =========================================================
    3. AUDIO MIXER
    ========================================================= */
-// NOTE: the previous version used .ogg files, which iOS Safari cannot play
-// at all (silent failure -> "unavailable"). Every sound below now tries MP3
-// sources first (universally supported), with an .ogg fallback, and if every
-// automated source fails, the row gets a manual "paste a link" input so the
-// user is never stuck — no code edits required.
 const SOUNDS = [
   {
     id: 'lofi', name: 'Lofi Beats', icon: '🎵',
@@ -690,6 +719,7 @@ const SOUNDS = [
 
 const mixerList = document.getElementById('mixerList');
 const masterPlayBtn = document.getElementById('masterPlayBtn');
+const resetMixerBtn = document.getElementById('resetMixerBtn');
 const audioElements = {};
 
 function markUnavailable(sound) {
@@ -698,9 +728,7 @@ function markUnavailable(sound) {
   row.querySelector('.mixer-name').textContent = `${sound.name} (unavailable)`;
   row.classList.add('needs-url');
 
-  // Manual escape hatch: let the user paste any direct audio link (mp3/ogg/wav)
-  // to fix this sound themselves, instantly, without touching code.
-  if (row.querySelector('.custom-url-row')) return; // already added
+  if (row.querySelector('.custom-url-row')) return;
   const fixRow = document.createElement('div');
   fixRow.className = 'custom-url-row';
   fixRow.innerHTML = `
@@ -726,7 +754,6 @@ function tryLoadSound(sound, urlIndex) {
     audioElements[sound.id] = { audio, active: false, objectUrl: null };
   }
 
-  // Replace error handler each attempt so it points at the next fallback
   audio.oncanplaythrough = () => updateSourceLink(sound, url);
   audio.onerror = () => tryLoadSound(sound, urlIndex + 1);
   audio.preload = 'auto';
@@ -766,7 +793,7 @@ SOUNDS.forEach(sound => {
   tryLoadSound(sound, 0);
 });
 
-// Import a sound from the user's own device (Files app, gallery, downloads, etc.)
+// Import a sound from the user's own device
 mixerList.addEventListener('click', (e) => {
   const importBtn = e.target.closest('.import-btn');
   if (!importBtn) return;
@@ -784,12 +811,11 @@ mixerList.addEventListener('change', (e) => {
   const entry = audioElements[id];
   const row = document.getElementById(`row-${id}`);
 
-  // Free the previous blob URL (if any) before creating a new one
   if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
   const objectUrl = URL.createObjectURL(file);
   entry.objectUrl = objectUrl;
 
-  entry.audio.onerror = null; // stop the URL-fallback chain — this is now user-supplied
+  entry.audio.onerror = null;
   entry.audio.loop = true;
   entry.audio.src = objectUrl;
   entry.audio.load();
@@ -807,7 +833,6 @@ mixerList.addEventListener('change', (e) => {
   document.querySelector(`.import-btn[data-id="${id}"]`).classList.add('imported');
 });
 
-// Manual "load your own URL" — works for URL input box
 mixerList.addEventListener('click', (e) => {
   const urlBtn = e.target.closest('.mixer-url-btn');
   if (!urlBtn) return;
@@ -835,7 +860,6 @@ mixerList.addEventListener('click', (e) => {
   row.querySelector('.mixer-name').textContent = sound.name;
 });
 
-// Legacy custom-url-btn support (fallback for unavailable sounds)
 mixerList.addEventListener('click', (e) => {
   const fixBtn = e.target.closest('.custom-url-btn');
   if (!fixBtn) return;
@@ -909,9 +933,58 @@ masterPlayBtn.addEventListener('click', () => {
       entry.audio.play().then(() => {
         entry.active = true;
         document.querySelector(`.sound-toggle[data-id="${id}"]`).classList.add('active');
-      }).catch(() => { /* blocked by browser — ignore this one */ });
+      }).catch(() => { /* blocked by browser */ });
     });
   }
+
+  updateMasterButtonState();
+});
+
+// Reset Mixer Button - Clear all URLs and reset to defaults
+resetMixerBtn.addEventListener('click', () => {
+  // Pause all sounds
+  Object.entries(audioElements).forEach(([id, entry]) => {
+    entry.audio.pause();
+    entry.active = false;
+    document.querySelector(`.sound-toggle[data-id="${id}"]`).classList.remove('active');
+  });
+
+  // Clear all URL inputs
+  document.querySelectorAll('.mixer-url-input').forEach(input => {
+    input.value = '';
+    input.style.borderColor = '';
+    input.placeholder = 'Audio URL (mp3/ogg)';
+  });
+
+  // Reset volume sliders
+  document.querySelectorAll('.mixer-info input[type="range"]').forEach(slider => {
+    slider.value = 50;
+  });
+
+  // Reset all sounds to default URLs
+  SOUNDS.forEach(sound => {
+    const entry = audioElements[sound.id];
+    const row = document.getElementById(`row-${sound.id}`);
+    
+    // Stop and reset audio
+    entry.audio.pause();
+    entry.active = false;
+    entry.audio.volume = 0.5;
+    entry.audio.src = '';
+    
+    // Clear imported file state
+    if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
+    entry.objectUrl = null;
+    
+    // Reset row UI
+    row.classList.remove('needs-url');
+    row.querySelector('.mixer-name').textContent = sound.name;
+    row.querySelector('.custom-url-row')?.remove();
+    document.querySelector(`.import-btn[data-id="${sound.id}"]`).classList.remove('imported');
+    
+    // Reload default sounds
+    tryLoadSound(sound, 0);
+  });
 
   updateMasterButtonState();
 });
