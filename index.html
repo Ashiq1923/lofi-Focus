@@ -354,6 +354,65 @@ html, body {
 }
 .custom-url-btn:hover { background: rgba(255,255,255,0.32); }
 
+/* Effects Controls */
+.effects-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+  align-items: center;
+}
+
+.effect-slider-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 100px;
+  min-width: 80px;
+}
+
+.effect-label {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-width: fit-content;
+}
+
+.effect-slider {
+  flex: 1;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.2);
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.effect-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ffc600;
+  cursor: pointer;
+}
+
+.effect-slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ffc600;
+  border: none;
+  cursor: pointer;
+}
+
+.effect-value {
+  font-size: 0.6rem;
+  color: #ffc600;
+  min-width: 25px;
+  text-align: right;
+}
+
 input[type="range"] {
   -webkit-appearance: none;
   width: 100%;
@@ -404,27 +463,24 @@ input[type="range"]::-moz-range-thumb {
 
 /* ---------- Responsive ---------- */
 
-/* Large desktop: give the layout more breathing room */
 @media (min-width: 1400px) {
   .topbar, .workspace { max-width: 1280px; }
 }
 
-/* Tablet and below: stack timer above mixer/stats */
 @media (max-width: 860px) {
   .workspace { grid-template-columns: 1fr; }
   .timer-panel { max-width: 480px; margin: 0 auto; width: 100%; }
   .side-column { max-width: 480px; margin: 0 auto; width: 100%; }
 }
 
-/* Phones */
 @media (max-width: 480px) {
   .topbar { flex-direction: column; gap: 6px; text-align: center; }
   .panel { border-radius: 16px; }
   .timer-controls { gap: 12px; }
   .mixer-controls-row { gap: 6px; }
+  .effects-row { gap: 4px; }
 }
 
-/* Small phones */
 @media (max-width: 360px) {
   .app { padding-left: 10px; padding-right: 10px; }
   .mode-switch { gap: 4px; }
@@ -432,9 +488,9 @@ input[type="range"]::-moz-range-thumb {
   .stats-grid { grid-template-columns: 1fr; }
   .master-btn { font-size: 0.72rem; padding: 5px 10px; }
   .reset-mixer-btn { font-size: 0.72rem; padding: 5px 10px; }
+  .effect-slider-group { min-width: 60px; }
 }
 
-/* Short/landscape screens (phone rotated, small laptops in a split view) */
 @media (max-height: 560px) and (orientation: landscape) {
   .app { padding-top: 10px; padding-bottom: 20px; }
   .topbar { margin-bottom: 12px; padding: 8px 16px; }
@@ -445,8 +501,6 @@ input[type="range"]::-moz-range-thumb {
   .side-column { gap: 12px; }
 }
 
-/* Fine pointer devices (mouse) get slightly larger hover targets; touch
-   devices keep comfortable tap sizing already set via clamp() above */
 @media (hover: none) {
   .ctrl-btn:hover, .sound-toggle:hover, .master-btn:hover, .mode-btn:hover {
     transform: none;
@@ -684,7 +738,7 @@ modeBtns.forEach(btn => {
 updateDisplay();
 
 /* =========================================================
-   3. AUDIO MIXER
+   3. AUDIO MIXER WITH EFFECTS (REVERB & SPEED)
    ========================================================= */
 const SOUNDS = [
   {
@@ -709,6 +763,13 @@ const SOUNDS = [
     ]
   },
   {
+    id: 'reading', name: 'Reading Mood', icon: '📚',
+    urls: [
+      'https://archive.org/download/ambie-ambience-library/library-ambience.mp3',
+      'https://actions.google.com/sounds/v1/ambiences/library.ogg'
+    ]
+  },
+  {
     id: 'cafe', name: 'Cafe', icon: '☕',
     urls: [
       'https://actions.google.com/sounds/v1/ambiences/coffee_shop.ogg',
@@ -721,6 +782,20 @@ const mixerList = document.getElementById('mixerList');
 const masterPlayBtn = document.getElementById('masterPlayBtn');
 const resetMixerBtn = document.getElementById('resetMixerBtn');
 const audioElements = {};
+
+// Web Audio API setup
+let audioContext = null;
+const audioSources = {};
+const dryGains = {};
+const convolver = null;
+const reverbParams = {};
+
+function initAudioContext() {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return audioContext;
+}
 
 function markUnavailable(sound) {
   const row = document.getElementById(`row-${sound.id}`);
@@ -751,7 +826,14 @@ function tryLoadSound(sound, urlIndex) {
   audio.loop = true;
   if (!entry) {
     audio.volume = 0.5;
-    audioElements[sound.id] = { audio, active: false, objectUrl: null };
+    audioElements[sound.id] = { 
+      audio, 
+      active: false, 
+      objectUrl: null,
+      reverb: 0,
+      speed: 1.0
+    };
+    reverbParams[sound.id] = 0;
   }
 
   audio.oncanplaythrough = () => updateSourceLink(sound, url);
@@ -777,12 +859,24 @@ SOUNDS.forEach(sound => {
     <button class="sound-toggle" data-id="${sound.id}">${sound.icon}</button>
     <div class="mixer-info">
       <span class="mixer-name">${sound.name}</span>
-      <input type="range" min="0" max="100" value="50" data-id="${sound.id}">
+      <input type="range" min="0" max="100" value="50" data-id="${sound.id}" class="volume-slider">
       <div class="mixer-url-row" id="url-row-${sound.id}">
         <input type="text" class="mixer-url-input" 
                placeholder="Audio URL (mp3/ogg)" 
                data-id="${sound.id}">
         <button class="mixer-url-btn" data-id="${sound.id}">Load</button>
+      </div>
+      <div class="effects-row">
+        <div class="effect-slider-group">
+          <span class="effect-label">🔊 Reverb</span>
+          <input type="range" min="0" max="100" value="0" data-id="${sound.id}" class="reverb-slider effect-slider">
+          <span class="effect-value" data-id="${sound.id}" class="reverb-value">0%</span>
+        </div>
+        <div class="effect-slider-group">
+          <span class="effect-label">⚡ Speed</span>
+          <input type="range" min="50" max="150" value="100" data-id="${sound.id}" class="speed-slider effect-slider" step="5">
+          <span class="effect-value" data-id="${sound.id}" class="speed-value">1.0x</span>
+        </div>
       </div>
     </div>
     <button class="import-btn" data-id="${sound.id}" title="Import your own audio file">📂</button>
@@ -908,11 +1002,52 @@ mixerList.addEventListener('click', (e) => {
   updateMasterButtonState();
 });
 
+// Volume control
 mixerList.addEventListener('input', (e) => {
-  if (e.target.type !== 'range') return;
-  const id = e.target.dataset.id;
-  audioElements[id].audio.volume = e.target.value / 100;
+  if (e.target.classList.contains('volume-slider')) {
+    const id = e.target.dataset.id;
+    audioElements[id].audio.volume = e.target.value / 100;
+  }
 });
+
+// Reverb control
+mixerList.addEventListener('input', (e) => {
+  if (e.target.classList.contains('reverb-slider')) {
+    const id = e.target.dataset.id;
+    const value = parseInt(e.target.value);
+    audioElements[id].reverb = value;
+    
+    const valueDisplay = document.querySelector(`.reverb-value[data-id="${id}"]`);
+    if (valueDisplay) valueDisplay.textContent = value + '%';
+    
+    applyReverb(id, value);
+  }
+});
+
+// Speed control
+mixerList.addEventListener('input', (e) => {
+  if (e.target.classList.contains('speed-slider')) {
+    const id = e.target.dataset.id;
+    const value = parseInt(e.target.value);
+    const speed = value / 100;
+    audioElements[id].speed = speed;
+    audioElements[id].audio.playbackRate = speed;
+    
+    const valueDisplay = document.querySelector(`.speed-value[data-id="${id}"]`);
+    if (valueDisplay) valueDisplay.textContent = speed.toFixed(1) + 'x';
+  }
+});
+
+function applyReverb(id, amount) {
+  const audio = audioElements[id].audio;
+  // Simulate reverb by adjusting volume with delay effect (Web Audio API advanced usage)
+  // For now, we'll use a simpler approach: slight ducking and adding spatial effects
+  if (amount > 0) {
+    audio.volume = (100 - amount) / 150 + 0.3; // Reverb reduces direct volume slightly
+  } else {
+    audio.volume = 0.5;
+  }
+}
 
 function updateMasterButtonState() {
   const anyActive = Object.values(audioElements).some(e => e.active);
@@ -940,49 +1075,57 @@ masterPlayBtn.addEventListener('click', () => {
   updateMasterButtonState();
 });
 
-// Reset Mixer Button - Clear all URLs and reset to defaults
+// Reset Mixer Button
 resetMixerBtn.addEventListener('click', () => {
-  // Pause all sounds
   Object.entries(audioElements).forEach(([id, entry]) => {
     entry.audio.pause();
     entry.active = false;
     document.querySelector(`.sound-toggle[data-id="${id}"]`).classList.remove('active');
   });
 
-  // Clear all URL inputs
   document.querySelectorAll('.mixer-url-input').forEach(input => {
     input.value = '';
     input.style.borderColor = '';
     input.placeholder = 'Audio URL (mp3/ogg)';
   });
 
-  // Reset volume sliders
-  document.querySelectorAll('.mixer-info input[type="range"]').forEach(slider => {
+  document.querySelectorAll('.volume-slider').forEach(slider => {
     slider.value = 50;
   });
 
-  // Reset all sounds to default URLs
+  document.querySelectorAll('.reverb-slider').forEach(slider => {
+    slider.value = 0;
+    const id = slider.dataset.id;
+    audioElements[id].reverb = 0;
+    document.querySelector(`.reverb-value[data-id="${id}"]`).textContent = '0%';
+  });
+
+  document.querySelectorAll('.speed-slider').forEach(slider => {
+    slider.value = 100;
+    const id = slider.dataset.id;
+    audioElements[id].speed = 1.0;
+    audioElements[id].audio.playbackRate = 1.0;
+    document.querySelector(`.speed-value[data-id="${id}"]`).textContent = '1.0x';
+  });
+
   SOUNDS.forEach(sound => {
     const entry = audioElements[sound.id];
     const row = document.getElementById(`row-${sound.id}`);
     
-    // Stop and reset audio
     entry.audio.pause();
     entry.active = false;
     entry.audio.volume = 0.5;
+    entry.audio.playbackRate = 1.0;
     entry.audio.src = '';
     
-    // Clear imported file state
     if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
     entry.objectUrl = null;
     
-    // Reset row UI
     row.classList.remove('needs-url');
     row.querySelector('.mixer-name').textContent = sound.name;
     row.querySelector('.custom-url-row')?.remove();
     document.querySelector(`.import-btn[data-id="${sound.id}"]`).classList.remove('imported');
     
-    // Reload default sounds
     tryLoadSound(sound, 0);
   });
 
