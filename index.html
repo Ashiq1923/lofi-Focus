@@ -228,6 +228,45 @@ html, body {
 .mixer-info { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .mixer-name { font-size: 0.85rem; font-weight: 600; }
 
+.mixer-url-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.mixer-url-input {
+  flex: 1;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  color: #fff;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  min-width: 0;
+}
+
+.mixer-url-input::placeholder {
+  color: rgba(255,255,255,0.5);
+}
+
+.mixer-url-btn {
+  background: rgba(255,255,255,0.2);
+  border: 1px solid var(--glass-border);
+  color: #fff;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+  transition: background 0.2s ease;
+}
+
+.mixer-url-btn:hover {
+  background: rgba(255,255,255,0.32);
+}
+
 .mixer-source-link {
   font-size: 0.68rem;
   color: var(--text-secondary);
@@ -382,44 +421,6 @@ input[type="range"]::-moz-range-thumb {
   .ctrl-btn:hover, .sound-toggle:hover, .master-btn:hover, .mode-btn:hover {
     transform: none;
   }
-}
-  .mixer-url-row {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  margin-top: 6px;
-}
-
-.mixer-url-input {
-  flex: 1;
-  background: rgba(255,255,255,0.1);
-  border: 1px solid var(--glass-border);
-  border-radius: 8px;
-  color: #fff;
-  padding: 6px 10px;
-  font-size: 0.75rem;
-  min-width: 0;
-}
-
-.mixer-url-input::placeholder {
-  color: rgba(255,255,255,0.5);
-}
-
-.mixer-url-btn {
-  background: rgba(255,255,255,0.2);
-  border: 1px solid var(--glass-border);
-  color: #fff;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 0.75rem;
-  cursor: pointer;
-  flex-shrink: 0;
-  white-space: nowrap;
-  transition: background 0.2s ease;
-}
-
-.mixer-url-btn:hover {
-  background: rgba(255,255,255,0.32);
 }
 </style>
 </head>
@@ -750,7 +751,12 @@ SOUNDS.forEach(sound => {
     <div class="mixer-info">
       <span class="mixer-name">${sound.name}</span>
       <input type="range" min="0" max="100" value="50" data-id="${sound.id}">
-      <a class="mixer-source-link" id="source-${sound.id}" href="#" target="_blank" rel="noopener noreferrer" style="display:none">source ↗</a>
+      <div class="mixer-url-row" id="url-row-${sound.id}">
+        <input type="text" class="mixer-url-input" 
+               placeholder="Audio URL (mp3/ogg)" 
+               data-id="${sound.id}">
+        <button class="mixer-url-btn" data-id="${sound.id}">Load</button>
+      </div>
     </div>
     <button class="import-btn" data-id="${sound.id}" title="Import your own audio file">📂</button>
     <input type="file" class="file-input" data-id="${sound.id}" accept="audio/*,video/*" hidden>
@@ -801,8 +807,35 @@ mixerList.addEventListener('change', (e) => {
   document.querySelector(`.import-btn[data-id="${id}"]`).classList.add('imported');
 });
 
-// Manual "load your own URL" fallback — works for any sound at any time,
-// not just ones already marked unavailable.
+// Manual "load your own URL" — works for URL input box
+mixerList.addEventListener('click', (e) => {
+  const urlBtn = e.target.closest('.mixer-url-btn');
+  if (!urlBtn) return;
+
+  const id = urlBtn.dataset.id;
+  const row = document.getElementById(`row-${id}`);
+  const input = row.querySelector('.mixer-url-input');
+  const url = input.value.trim();
+  if (!url) return;
+
+  const sound = SOUNDS.find(s => s.id === id);
+  const entry = audioElements[id];
+  entry.audio.onerror = () => {
+    input.placeholder = 'That link failed — try another URL';
+    input.value = '';
+  };
+  entry.audio.oncanplaythrough = () => {
+    input.style.borderColor = '#78dc96';
+    input.placeholder = 'Audio loaded! ✓';
+  };
+  entry.audio.loop = true;
+  entry.audio.src = url;
+  entry.audio.load();
+
+  row.querySelector('.mixer-name').textContent = sound.name;
+});
+
+// Legacy custom-url-btn support (fallback for unavailable sounds)
 mixerList.addEventListener('click', (e) => {
   const fixBtn = e.target.closest('.custom-url-btn');
   if (!fixBtn) return;
